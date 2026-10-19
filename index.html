@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pomodoro</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    font-family: system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    transition: background .5s;
+  }
+  body.break { background: #14532d; }
+  h1 { font-size: 1.5rem; letter-spacing: 1px; }
+  .phase {
+    font-size: .95rem;
+    padding: 4px 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+  }
+  .ring { position: relative; }
+  svg { display: block; transform: rotate(-90deg); }
+  .time {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .time b { font-size: 3rem; font-weight: 700; }
+  .time span { color: #94a3b8; font-size: .9rem; }
+  .controls { display: flex; gap: 12px; }
+  button {
+    border: none;
+    padding: 12px 26px;
+    font-size: 1rem;
+    font-weight: 700;
+    border-radius: 10px;
+    cursor: pointer;
+    color: #052e16;
+    background: #22c55e;
+  }
+  button.ghost { background: #334155; color: #e2e8f0; }
+  button:hover { filter: brightness(1.15); }
+  .dones { color: #94a3b8; font-size: .9rem; }
+  .dones b { color: #4ade80; }
+</style>
+</head>
+<body>
+  <h1>🍅 Pomodoro</h1>
+  <div class="phase" id="phase">Çalışma</div>
+
+  <div class="ring">
+    <svg width="260" height="260" viewBox="0 0 260 260">
+      <circle cx="130" cy="130" r="115" fill="none" stroke="#334155" stroke-width="10"/>
+      <circle id="progress" cx="130" cy="130" r="115" fill="none" stroke="#22c55e"
+              stroke-width="10" stroke-linecap="round"
+              stroke-dasharray="722.6" stroke-dashoffset="0"/>
+    </svg>
+    <div class="time">
+      <b id="clock">25:00</b>
+      <span id="nextUp">sonra: 5 dk mola</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="startPause">Başla</button>
+    <button id="skip" class="ghost">Atla</button>
+    <button id="restart" class="ghost">Sıfırla</button>
+  </div>
+
+  <div class="dones">Bugün tamamlanan pomodoro: <b id="dones">0</b></div>
+
+<script>
+const PHASES = {
+  work:   { label: 'Çalışma',  mins: 25, next: '5 dk mola' },
+  break:  { label: 'Mola',     mins: 5,  next: '25 dk çalışma' }
+};
+
+const clockEl   = document.getElementById('clock');
+const phaseEl   = document.getElementById('phase');
+const nextEl    = document.getElementById('nextUp');
+const progEl    = document.getElementById('progress');
+const btn       = document.getElementById('startPause');
+const donesEl   = document.getElementById('dones');
+
+const CIRC = 2 * Math.PI * 115;
+let phase = 'work', remain = 0, total = 0, tick = null;
+let doneCount = Number(localStorage.getItem('pomodoroDone') || 0);
+donesEl.textContent = doneCount;
+
+function setPhase(p, autoStart) {
+  phase = p;
+  total = PHASES[p].mins * 60;
+  remain = total;
+  phaseEl.textContent = PHASES[p].label + (p === 'break' ? ' ☕' : ' 🍅');
+  nextEl.textContent = 'sonra: ' + PHASES[p].next;
+  document.body.classList.toggle('break', p === 'break');
+  progEl.setAttribute('stroke', p === 'break' ? '#38bdf8' : '#22c55e');
+  render();
+  if (autoStart) start();
+  else stop();
+}
+
+function render() {
+  const m = Math.floor(remain / 60), s = remain % 60;
+  clockEl.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  progEl.setAttribute('stroke-dashoffset', CIRC * (1 - remain / total));
+}
+
+function stop() {
+  clearInterval(tick);
+  tick = null;
+  btn.textContent = 'Başla';
+}
+
+function start() {
+  if (tick) return;
+  tick = setInterval(() => {
+    remain--;
+    if (remain <= 0) {
+      clearInterval(tick);
+      tick = null;
+      if (phase === 'work') {
+        doneCount++;
+        localStorage.setItem('pomodoroDone', doneCount);
+        donesEl.textContent = doneCount;
+        beep();
+        setPhase('break', true);
+      } else {
+        beep();
+        setPhase('work', true);
+      }
+      return;
+    }
+    render();
+  }, 1000);
+  btn.textContent = 'Dur';
+}
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, .25, .5].forEach((t, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 660 + i * 110;
+      g.gain.setValueAtTime(.15, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + t + .2);
+      o.start(ctx.currentTime + t);
+      o.stop(ctx.currentTime + t + .22);
+    });
+  } catch (e) {}
+}
+
+btn.addEventListener('click', () => tick ? stop() : start());
+document.getElementById('skip').addEventListener('click', () => {
+  setPhase(phase === 'work' ? 'break' : 'work', false);
+});
+document.getElementById('restart').addEventListener('click', () => {
+  setPhase('work', false);
+});
+
+setPhase('work', false);
+</script>
+</body>
+</html>
